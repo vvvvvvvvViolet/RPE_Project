@@ -298,7 +298,140 @@ only measured facts and states that the layout is unknown.
 
 ---
 
-## 8. Reproducing this analysis
+## 8. Write fidelity — what makes an exported file importable
+
+Editing was added after the read-only analysis above. Writing a configuration
+that will be imported back into a running system is only safe if the file the
+tool produces differs from the original **only** where the user changed
+something. That property was established by measurement, not assumption.
+
+### 8.1 Serialisation measured from the samples
+
+| Property | Measured value | Why it matters |
+|---|---|---|
+| Encoding | UTF-8, **no BOM** | A BOM would prepend 3 bytes to every file |
+| Line endings | **`\n` only** — zero CR bytes in all three samples | .NET's default on Windows is `\r\n`, which would rewrite every one of the ~13,000 lines |
+| Indentation | 2 spaces, up to 26 levels deep | — |
+| Empty elements | `<Options />` — self-closing, space before the slash | — |
+| Trailing newline | **none** after `</OpcRouter4Export>` | — |
+| Declaration | `<?xml version="1.0" encoding="utf-8"?>`, lower-case `utf-8` | — |
+| Container | one entry, `OpcRouter4.xml`, method 8 (DEFLATE), flag `0x0000`, no extra field | — |
+
+### 8.2 Preserve, do not reformat
+
+The reader keeps every whitespace node and the writer does not re-indent, so
+the file's own layout is reproduced rather than a layout this tool prefers.
+The properties in the table above are therefore reproduced *because they were
+in the file*, not because the writer was configured to imitate them.
+
+That distinction is not cosmetic. Reformatting has two failure modes that
+preserving does not:
+
+* **A whitespace-only value is data.** A delimiter field holding a space or a
+  tab is indistinguishable from layout whitespace to a reader that discards
+  layout. Reading with `IgnoreWhitespace` turns `<Delimiter>   </Delimiter>`
+  into `<Delimiter></Delimiter>` on a save that changed nothing. Reproduced,
+  then fixed.
+* **A carriage return inside a value is data.** `NewLineHandling.Replace`
+  rewrites a CR in element text to a line feed, so a multi-line value such as
+  an embedded SQL statement comes back altered on an unmodified save — and
+  because the altered form is itself stable, no round-trip check catches it.
+  `NewLineHandling.Entitize` writes it as `&#xD;`, which survives re-reading.
+  Reproduced, then fixed.
+
+There is one case no writer setting can fix. XML 1.0 **requires** a reader to
+convert a literal carriage return in content to a line feed before the document
+is handed over, so a file containing literal CRLF inside a value has already
+lost them by the time this tool sees it. A CR written as the character
+reference `&#xD;` is exempt and does round-trip.
+
+Rather than state a guarantee that quietly fails for such a file, the reader
+**measures** it: on opening, the freshly parsed document is re-serialised and
+compared with the bytes that were read. When they match, byte fidelity holds
+for that file. When they do not, the difference is reported with its likely
+cause, editing still works, and the save confirmation repeats the caveat. None
+of the three supplied samples contains a carriage return, so all three round-trip
+exactly.
+
+Preserving also means the byte-fidelity claim holds for documents formatted
+differently from the samples, which is what makes it testable against XML this
+tool did not produce — see `WriterShapeTests`.
+
+### 8.3 Verified round-trip results
+
+Measured against the three supplied samples:
+
+| Sample | Unmodified save: payload CRC-32 | Payload bytes |
+|---|---|---|
+| `project.rpe`   | `6C8AEBA8` → `6C8AEBA8` | 189,187 → 189,187, **identical** |
+| `project_1.rpe` | `D35706F4` → `D35706F4` | 528,881 → 528,881, **identical** |
+| `project_2.rpe` | `43B48D43` → `43B48D43` | 709,155 → 709,155, **identical** |
+
+An unmodified save reproduces the payload bit for bit. The ZIP wrapper is a few
+bytes smaller because .NET's DEFLATE encoder makes slightly different choices
+than the product's, which does not affect the decompressed content — the CRC-32
+is computed over that content and matches.
+
+With a single edit applied (appending 7 characters to one `Name`), the
+difference in the payload was exactly **7 bytes inserted at one offset**, with
+every other byte unchanged. Reverting the edit restored a byte-identical
+payload.
+
+### 8.4 Why edits are applied to the source document
+
+Edits are written into the `XmlDocument` the parser loaded, never into a
+document rebuilt from the display tree. The display tree is a *lossy* view: it
+folds leaf elements into fields, caps long values for display, and stops at a
+node limit. Rebuilding from it would drop whatever the view did not carry.
+Editing the loaded document instead means every element, attribute, value and
+ordering the reader did not touch is carried through untouched.
+
+Two consequences follow, and both are enforced:
+
+* A document that any limit truncated is opened **read-only** — an incomplete
+  read must not become a lossy write.
+* A field whose value was shortened for display is **not editable**, or the
+  edit would silently truncate the file.
+
+### 8.5 Empty values
+
+Setting `XmlElement.InnerText` to an empty string leaves an empty text node
+behind, which serialises as `<Name></Name>`. The product writes `<Name />`.
+The editor therefore sets `IsEmpty` instead, and both behaviours are pinned by
+tests so the distinction cannot regress.
+
+### 8.6 What is checked before a save is reported as successful
+
+1. The file is written to a temporary name in the destination folder, so a
+   failure part-way through cannot leave a truncated `.rpe` where a valid one
+   was.
+2. The temporary file is re-opened, its container and XML re-parsed, and the
+   root element checked.
+3. The re-parsed document is re-serialised and compared byte for byte with what
+   was written, proving the file is stable across a further round trip; and the
+   written payload is compared against what the in-memory document serialises
+   to, proving every edit reached the file and nothing else moved.
+4. Only then is it moved into place. If any check fails the temporary file is
+   deleted and nothing is saved.
+5. Overwriting the file that is open additionally requires an explicit request
+   and takes a timestamped `.bak` copy first.
+
+### 8.7 What write support does *not* establish
+
+* Only `ExportType="Templates"` / `FileVersion="Version_3"` documents were
+  available to round-trip. The writer is format-general, but that is the only
+  shape with measured evidence behind it.
+* **No file produced by this tool has been imported into a real OPC Router
+  installation.** The guarantees above are about byte-level fidelity to the
+  product's own output format; they are strong evidence, not a substitute for
+  an import test on a non-production instance.
+* Structural edits — adding or removing connections, transfer objects or
+  items — are not supported. Only existing values can be changed, which keeps
+  every write inside a shape the product demonstrably produces.
+
+---
+
+## 9. Reproducing this analysis
 
 The findings above can be re-derived without this application:
 

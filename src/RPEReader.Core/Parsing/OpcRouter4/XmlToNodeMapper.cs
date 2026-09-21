@@ -32,16 +32,27 @@ internal sealed class XmlToNodeMapper
         _cancellationToken.ThrowIfCancellationRequested();
 
         var category = categoryOverride ?? OpcRouter4Schema.DescribeTransferObject(element.LocalName);
-        var node = new RpeNode(DisplayNameFor(element), string.IsNullOrEmpty(category) ? element.LocalName : category);
+        var node = new RpeNode(DisplayNameFor(element), string.IsNullOrEmpty(category) ? element.LocalName : category)
+        {
+            Source = element
+        };
         _nodeCount++;
 
         foreach (XmlAttribute attribute in element.Attributes)
         {
             // Type attributes name a .NET type inside OPC Router's own
-            // assemblies. They are shown verbatim and never resolved.
-            node.AddField($"@{attribute.LocalName}", Clamp(attribute.Value), note: attribute.LocalName == "Type"
-                ? "Declared .NET type (not resolved by this reader)"
-                : null);
+            // assemblies. They are shown verbatim, never resolved, and never
+            // opened for editing: rewriting one would misdescribe the data to
+            // OPC Router on import.
+            var isTypeAttribute = attribute.LocalName == "Type";
+            var clamped = Clamp(attribute.Value);
+
+            node.AddField(new RpeField(
+                $"@{attribute.LocalName}",
+                clamped,
+                note: isTypeAttribute ? "Declared .NET type (not resolved, not editable)" : null,
+                source: attribute,
+                editable: !isTypeAttribute && !WasClamped(attribute.Value, clamped)));
         }
 
         var childElements = new List<XmlElement>();
@@ -121,34 +132,56 @@ internal sealed class XmlToNodeMapper
     {
         var typeHint = element.GetAttribute("Type");
         var raw = element.InnerText;
-        string? note = null;
+        var note = DeriveNote(element.LocalName, typeHint, raw);
+        var clamped = Clamp(raw);
 
-        if (IsDateTime(element, typeHint)
-            && DotNetDateTimeDecoder.TryDecode(raw, out _, out var display))
-        {
-            note = display;
-        }
-        else if (OpcRouter4Schema.CredentialReferenceElements.Contains(element.LocalName))
-        {
-            note = "Credential store reference; the export carries no secret value.";
-        }
-        else if (element.LocalName is "PlugInType" or "PlugInTypeID")
-        {
-            var described = OpcRouter4Schema.DescribePlugInType(raw.Trim());
-            if (!string.IsNullOrEmpty(described))
-            {
-                note = described;
-            }
-        }
-
-        node.AddField(element.LocalName, Clamp(raw), string.IsNullOrEmpty(typeHint) ? null : typeHint, note);
+        node.AddField(new RpeField(
+            element.LocalName,
+            clamped,
+            string.IsNullOrEmpty(typeHint) ? null : typeHint,
+            note,
+            source: element,
+            // A value that had to be shortened for display must not be written
+            // back, or the edit would silently truncate the file.
+            editable: !WasClamped(raw, clamped)));
     }
 
-    private static bool IsDateTime(XmlElement element, string typeHint) =>
-        typeHint.StartsWith("System.DateTime", StringComparison.Ordinal)
-        || (string.IsNullOrEmpty(typeHint) && OpcRouter4Schema.KnownDateTimeElements.Contains(element.LocalName));
+    /// <summary>
+    /// Builds the explanatory text shown beside a value — a decoded timestamp,
+    /// a plug-in type name, a note that a credential is held by reference.
+    /// </summary>
+    /// <remarks>
+    /// Shared with <c>OpcRouter4Editor</c> so that an edited value's note is
+    /// recomputed from the new value instead of continuing to describe the old
+    /// one. A stale decoded date is worse than no date at all.
+    /// </remarks>
+    internal static string? DeriveNote(string elementName, string? typeHint, string? rawValue)
+    {
+        if (IsDateTime(elementName, typeHint)
+            && DotNetDateTimeDecoder.TryDecode(rawValue, out _, out var display))
+        {
+            return display;
+        }
 
-    private static string DisplayNameFor(XmlElement element)
+        if (OpcRouter4Schema.CredentialReferenceElements.Contains(elementName))
+        {
+            return "Credential store reference; the export carries no secret value.";
+        }
+
+        if (elementName is "PlugInType" or "PlugInTypeID")
+        {
+            var described = OpcRouter4Schema.DescribePlugInType(rawValue?.Trim());
+            return string.IsNullOrEmpty(described) ? null : described;
+        }
+
+        return null;
+    }
+
+    private static bool IsDateTime(string elementName, string? typeHint) =>
+        (typeHint?.StartsWith("System.DateTime", StringComparison.Ordinal) ?? false)
+        || (string.IsNullOrEmpty(typeHint) && OpcRouter4Schema.KnownDateTimeElements.Contains(elementName));
+
+    internal static string DisplayNameFor(XmlElement element)
     {
         foreach (var candidate in OpcRouter4Schema.NameElements)
         {
@@ -177,6 +210,10 @@ internal sealed class XmlToNodeMapper
 
         return node.Children.Count == 1 ? "1 item" : $"{node.Children.Count:N0} items";
     }
+
+    /// <summary>True when <see cref="Clamp"/> shortened the value for display.</summary>
+    private static bool WasClamped(string? original, string? clamped) =>
+        !string.Equals(original, clamped, StringComparison.Ordinal);
 
     private string? Clamp(string? value)
     {

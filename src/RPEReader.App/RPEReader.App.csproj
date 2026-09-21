@@ -14,7 +14,7 @@
 
     <!-- Version information stamped into the Win32 resource block -->
     <AssemblyTitle>RPE Reader</AssemblyTitle>
-    <Description>Read-only viewer and analyser for .rpe files</Description>
+    <Description>Viewer, analyser and editor for .rpe files</Description>
 
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>

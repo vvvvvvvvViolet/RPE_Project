@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Xml;
 using RPEReader.Core.Abstractions;
+using RPEReader.Core.Editing;
 using RPEReader.Core.Detection;
 using RPEReader.Core.Models;
 using RPEReader.Core.Parsing.OpcRouter4;
@@ -19,6 +20,12 @@ public sealed class OpcRouter4Parser : IRpeParser
     public string DisplayName => "Inray OPC Router 4 project export (ZIP + OpcRouter4.xml)";
 
     public int Priority => 100;
+
+    /// <summary>
+    /// This format round-trips byte for byte, so documents read by this parser
+    /// carry an editor and can be written back out for re-import.
+    /// </summary>
+    public bool SupportsWriting => true;
 
     public bool CanParse(RpeProbe probe)
     {
@@ -94,21 +101,14 @@ public sealed class OpcRouter4Parser : IRpeParser
         {
             // DTDs are prohibited and no resolver is supplied, so external
             // entities and entity-expansion attacks cannot reach the parser.
-            var settings = new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreComments = false,
-                IgnoreWhitespace = true,
-                MaxCharactersInDocument = limits.MaxEntryUncompressedBytes,
-                MaxCharactersFromEntities = 0,
-                CloseInput = true
-            };
+            // Whitespace is preserved so that the same document can be written
+            // back unchanged; see OpcRouter4Writer for why that matters.
+            var settings = OpcRouter4Writer.CreateXmlReaderSettings(limits.MaxEntryUncompressedBytes);
 
             using var memory = new MemoryStream(xmlBytes, writable: false);
             using var reader = XmlReader.Create(memory, settings);
 
-            document = new XmlDocument { XmlResolver = null };
+            document = new XmlDocument { XmlResolver = null, PreserveWhitespace = true };
             document.Load(reader);
         }
         catch (OperationCanceledException)
@@ -149,23 +149,26 @@ public sealed class OpcRouter4Parser : IRpeParser
         var summary = new List<RpeField>();
         foreach (var attribute in OpcRouter4Schema.RootAttributes)
         {
-            var value = root.GetAttribute(attribute);
-            if (string.IsNullOrEmpty(value))
+            var node = root.GetAttributeNode(attribute);
+            if (node is null || string.IsNullOrEmpty(node.Value))
             {
                 continue;
             }
 
             var note = attribute switch
             {
-                "EncryptedFieldHandling" when value.Equals("Skip", StringComparison.OrdinalIgnoreCase)
+                "EncryptedFieldHandling" when node.Value.Equals("Skip", StringComparison.OrdinalIgnoreCase)
                     => "Encrypted fields were omitted by the exporter, so no secrets are present.",
                 "FileVersion" => "Export schema revision.",
                 "Version" => "OPC Router version that wrote the export.",
                 _ => null
             };
 
-            summary.Add(new RpeField(attribute, value, note: note));
-            treeRoot.AddField(attribute, value, note: note);
+            // One instance, shown in two places: an edit through the tree is
+            // reflected in the summary pane and vice versa.
+            var field = new RpeField(attribute, node.Value, note: note, source: node, editable: true);
+            summary.Add(field);
+            treeRoot.AddField(field);
         }
 
         foreach (var sectionName in OpcRouter4Schema.TopLevelSections)
@@ -209,6 +212,29 @@ public sealed class OpcRouter4Parser : IRpeParser
 
         var rawText = DecodeRawText(xmlBytes, limits, out var rawTruncated);
 
+        var incomplete = mapper.LimitHit || diagnostics.Any(d => d.Severity == DiagnosticSeverity.Warning);
+
+        // Editing is offered only when the document was read in full. Writing
+        // back a tree that a limit truncated would risk losing what was cut.
+        IRpeDocumentEditor? editor = null;
+        if (incomplete)
+        {
+            diagnostics.Add(ParseDiagnostic.Info(
+                "This document was not read in full, so it is open read-only. Editing is offered only for a complete read."));
+        }
+        else
+        {
+            // Prove byte fidelity for *this* file rather than assert it in
+            // general: serialise what was just parsed and compare it with what
+            // was read. XML line-end normalisation is mandated by the spec and
+            // happens inside the reader, so a literal CR in a value arrives as
+            // a line feed and no writer setting can put it back. Rather than
+            // claim a guarantee that quietly does not hold for such a file, the
+            // reader measures it and says so.
+            var exact = VerifyRoundTrip(document, xmlBytes, diagnostics);
+            editor = new OpcRouter4Editor(document, limits, context.SourcePath, exact);
+        }
+
         var doc = new RpeDocument
         {
             FormatId = FormatId,
@@ -217,10 +243,70 @@ public sealed class OpcRouter4Parser : IRpeParser
             Summary = summary,
             RawText = rawText,
             RawTextTruncated = rawTruncated,
-            Incomplete = mapper.LimitHit || diagnostics.Any(d => d.Severity == DiagnosticSeverity.Warning)
+            Incomplete = incomplete,
+            Editor = editor
         };
 
         return ParseResult.Ok(doc).AddRange(diagnostics);
+    }
+
+    /// <summary>
+    /// Re-serialises the freshly parsed document and compares it with the bytes
+    /// that were read. Returns true when a save with no edits would reproduce
+    /// the payload exactly.
+    /// </summary>
+    private static bool VerifyRoundTrip(XmlDocument document, byte[] original, List<ParseDiagnostic> diagnostics)
+    {
+        byte[] reserialised;
+        try
+        {
+            reserialised = OpcRouter4Writer.SerialiseXml(document);
+        }
+        catch (Exception ex) when (ex is XmlException or IOException or NotSupportedException)
+        {
+            diagnostics.Add(ParseDiagnostic.Warning(
+                $"This document could not be test-serialised ({ex.GetType().Name}), so byte fidelity is unverified."));
+            return false;
+        }
+
+        if (reserialised.AsSpan().SequenceEqual(original))
+        {
+            return true;
+        }
+
+        var reason = DescribeFidelityLoss(original);
+        diagnostics.Add(ParseDiagnostic.Warning(
+            "Saving this file will not reproduce it byte for byte" + reason +
+            " Editing is still available, and only the differences noted here plus your own changes will appear."));
+
+        return false;
+    }
+
+    /// <summary>
+    /// Names the likely cause of a fidelity loss, so the warning is actionable
+    /// rather than merely alarming.
+    /// </summary>
+    private static string DescribeFidelityLoss(byte[] original)
+    {
+        var text = new UTF8Encoding(false).GetString(original);
+
+        if (text.Contains('\r'))
+        {
+            return ": it contains carriage returns, which every XML reader converts to line feeds " +
+                   "as the specification requires, so they cannot be written back.";
+        }
+
+        if (!text.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return ": it has no XML declaration, and one will be added.";
+        }
+
+        if (text.StartsWith('\uFEFF'))
+        {
+            return ": it begins with a byte order mark, which is not written back.";
+        }
+
+        return ": its formatting differs from what the writer produces.";
     }
 
     /// <summary>Adds the counts a user of OPC Router would expect to see first.</summary>

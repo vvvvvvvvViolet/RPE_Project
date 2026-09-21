@@ -16,8 +16,11 @@ public sealed class RpeNode
         Value = value;
     }
 
-    /// <summary>Display name of the node.</summary>
-    public string Name { get; }
+    /// <summary>
+    /// Display name of the node. Derived from a child value for some node
+    /// kinds, so the editor updates it when that value changes.
+    /// </summary>
+    public string Name { get; internal set; }
 
     /// <summary>Coarse kind, e.g. "Section", "Connection", "TransferObject", "Item".</summary>
     public string? Category { get; }
@@ -32,6 +35,12 @@ public sealed class RpeNode
     /// <summary>True when a limit stopped this node from being fully populated.</summary>
     public bool Truncated { get; set; }
 
+    /// <summary>
+    /// Opaque handle to whatever the parser built this node from, used to
+    /// re-derive the label when an underlying value changes.
+    /// </summary>
+    public object? Source { get; init; }
+
     public RpeNode AddChild(RpeNode child)
     {
         ArgumentNullException.ThrowIfNull(child);
@@ -39,15 +48,13 @@ public sealed class RpeNode
         return child;
     }
 
-    public RpeNode AddField(string name, string? value, string? typeHint = null, string? note = null)
-    {
-        _fields.Add(new RpeField(name, value, typeHint, note));
-        return this;
-    }
+    public RpeNode AddField(string name, string? value, string? typeHint = null, string? note = null) =>
+        AddField(new RpeField(name, value, typeHint, note));
 
     public RpeNode AddField(RpeField field)
     {
         ArgumentNullException.ThrowIfNull(field);
+        field.Owner = this;
         _fields.Add(field);
         return this;
     }

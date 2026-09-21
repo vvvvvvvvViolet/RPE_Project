@@ -16,6 +16,13 @@ public abstract class ObservableObject : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        RaisePropertyChanged(propertyName);
+
+    /// <summary>
+    /// Raises the change notification for another object in the same view model
+    /// graph — a parent whose computed value depends on this one, for instance.
+    /// </summary>
+    internal void RaisePropertyChanged(string? propertyName) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

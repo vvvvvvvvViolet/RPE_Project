@@ -25,6 +25,17 @@ public sealed class NodeViewModel : ObservableObject
 
     public string Name => Node.Name;
 
+    /// <summary>
+    /// Re-reads the label from the model. The label can be derived from a value
+    /// the user just edited, so the tree has to be told to pick it up.
+    /// </summary>
+    public void RefreshLabel()
+    {
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Path));
+        Parent?.RaisePropertyChanged(nameof(Path));
+    }
+
     public string? Category => Node.Category;
 
     public string? Value => Node.Value;

@@ -27,6 +27,12 @@ public interface IRpeParser
     bool CanParse(RpeProbe probe);
 
     /// <summary>
+    /// True when this parser can also write its format back out, in which case
+    /// the documents it produces carry an editor.
+    /// </summary>
+    bool SupportsWriting => false;
+
+    /// <summary>
     /// Reads the document. Implementations report problems through the returned
     /// <see cref="ParseResult"/> rather than throwing.
     /// </summary>

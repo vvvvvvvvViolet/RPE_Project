@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -92,6 +93,27 @@ public partial class MainWindow : Window
 
         path = files[0];
         return true;
+    }
+
+    /// <summary>
+    /// Cancels the edit before it starts for a field this build will not write:
+    /// a declared .NET type name, a value that was shortened for display, or a
+    /// derived value with no location in the file.
+    /// </summary>
+    private void OnDetailsBeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
+    {
+        if (e.Row.Item is FieldRowViewModel row && !row.CanEditValue)
+        {
+            e.Cancel = true;
+        }
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (!_viewModel.ConfirmDiscardChanges())
+        {
+            e.Cancel = true;
+        }
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e) => Close();

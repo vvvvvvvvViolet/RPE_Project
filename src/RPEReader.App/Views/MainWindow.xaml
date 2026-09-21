@@ -2,18 +2,20 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:RPEReader.App.ViewModels"
-        Title="RPE Reader 1.0.0"
+        Title="{Binding WindowTitle}"
         Height="820" Width="1320"
         MinHeight="560" MinWidth="900"
         AllowDrop="True"
         Drop="OnDrop"
         DragOver="OnDragOver"
+        Closing="OnClosing"
         WindowStartupLocation="CenterScreen">
 
   <Window.InputBindings>
     <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenFileCommand}" />
     <KeyBinding Key="F" Modifiers="Control" Command="{Binding SearchCommand}" />
     <KeyBinding Key="W" Modifiers="Control" Command="{Binding CloseFileCommand}" />
+    <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveAsRpeCommand}" />
   </Window.InputBindings>
 
   <DockPanel>
@@ -24,6 +26,11 @@
         <MenuItem Header="_Open…" Command="{Binding OpenFileCommand}" InputGestureText="Ctrl+O" />
         <MenuItem Header="_Close"  Command="{Binding CloseFileCommand}" InputGestureText="Ctrl+W" />
         <Separator />
+        <MenuItem Header="Save _as RPE…" Command="{Binding SaveAsRpeCommand}" InputGestureText="Ctrl+Shift+S"
+                  ToolTip="Write an importable .rpe to a new file. The open file is never touched." />
+        <MenuItem Header="Save (overwrite _original)…" Command="{Binding OverwriteRpeCommand}"
+                  ToolTip="Replace the open file. A timestamped .bak copy is made first." />
+        <Separator />
         <MenuItem Header="Export as _JSON…" Command="{Binding ExportJsonCommand}" />
         <MenuItem Header="Export as _CSV…"  Command="{Binding ExportCsvCommand}" />
         <MenuItem Header="Export as _Text…" Command="{Binding ExportTextCommand}" />
@@ -31,6 +38,14 @@
         <MenuItem Header="E_xit" Click="OnExitClick" />
       </MenuItem>
       <MenuItem Header="_Edit">
+        <MenuItem Header="Enable _editing" IsCheckable="True"
+                  IsChecked="{Binding IsEditMode, Mode=TwoWay}"
+                  IsEnabled="{Binding CanEdit}"
+                  ToolTip="Files always open read-only. Turning this on lets the Value column be changed in memory." />
+        <Separator />
+        <MenuItem Header="_Revert all changes"   Command="{Binding RevertAllCommand}" />
+        <MenuItem Header="Revert selected change" Command="{Binding RevertSelectedCommand}" />
+        <Separator />
         <MenuItem Header="Copy selected _node" Command="{Binding CopySelectionCommand}" />
         <MenuItem Header="Copy _summary"       Command="{Binding CopySummaryCommand}" />
       </MenuItem>
@@ -52,8 +67,11 @@
         <TextBlock Text="{Binding StatusText}" TextTrimming="CharacterEllipsis" />
       </StatusBarItem>
       <StatusBarItem HorizontalAlignment="Right">
-        <TextBlock Foreground="{StaticResource MutedText}"
-                   Text="Read-only · offline · no telemetry" />
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="{Binding EditModeLabel}" FontWeight="SemiBold"
+                     Foreground="{StaticResource AccentText}" Margin="0,0,12,0" />
+          <TextBlock Foreground="{StaticResource MutedText}" Text="offline · no telemetry" />
+        </StackPanel>
       </StatusBarItem>
     </StatusBar>
 
@@ -62,6 +80,13 @@
       <ToolBar>
         <Button Command="{Binding OpenFileCommand}" Content="Open file…" Padding="8,2" />
         <Button Command="{Binding CloseFileCommand}" Content="Close" Padding="8,2" />
+        <Separator />
+        <CheckBox Content="Edit mode" VerticalAlignment="Center" Margin="4,0"
+                  IsChecked="{Binding IsEditMode, Mode=TwoWay}"
+                  IsEnabled="{Binding CanEdit}"
+                  ToolTip="Files open read-only. Tick this to allow changes in memory." />
+        <Button Command="{Binding SaveAsRpeCommand}" Content="Save as RPE…" Padding="8,2" />
+        <Button Command="{Binding RevertAllCommand}" Content="Revert all" Padding="8,2" />
         <Separator />
         <TextBlock Text="Find:" VerticalAlignment="Center" Margin="4,0" />
         <TextBox Width="240" VerticalAlignment="Center"
@@ -169,16 +194,35 @@
                          Foreground="{StaticResource AccentText}" FontWeight="SemiBold" />
             </Border>
             <DataGrid ItemsSource="{Binding SelectedFields}"
-                      AutoGenerateColumns="False" IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="{Binding IsDetailsReadOnly}"
+                      BeginningEdit="OnDetailsBeginningEdit"
                       HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-                      CanUserAddRows="False" SelectionUnit="CellOrRowHeader"
+                      CanUserAddRows="False" CanUserDeleteRows="False"
+                      SelectionUnit="CellOrRowHeader"
                       ClipboardCopyMode="IncludeHeader"
                       EnableRowVirtualization="True" EnableColumnVirtualization="True">
+              <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsModified}" Value="True">
+                      <Setter Property="Background" Value="#FFFFF4CE" />
+                      <Setter Property="FontWeight" Value="SemiBold" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding CanEditValue}" Value="False">
+                      <Setter Property="Foreground" Value="{StaticResource MutedText}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </DataGrid.RowStyle>
               <DataGrid.Columns>
-                <DataGridTextColumn Header="Field" Binding="{Binding Name}"  Width="200" />
-                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
-                <DataGridTextColumn Header="Declared type" Binding="{Binding DeclaredType}" Width="200" />
-                <DataGridTextColumn Header="Note"  Binding="{Binding Note}"  Width="240" />
+                <DataGridTextColumn Header="" Binding="{Binding ChangeMarker}" Width="24" IsReadOnly="True" />
+                <DataGridTextColumn Header="Field" Binding="{Binding Name}"  Width="190" IsReadOnly="True" />
+                <DataGridTextColumn Header="Value" Width="*"
+                                    Binding="{Binding Value, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}" />
+                <DataGridTextColumn Header="Original" Binding="{Binding OriginalValue}" Width="160" IsReadOnly="True" />
+                <DataGridTextColumn Header="Declared type" Binding="{Binding DeclaredType}" Width="180" IsReadOnly="True" />
+                <DataGridTextColumn Header="Note"  Binding="{Binding Note}"  Width="240" IsReadOnly="True" />
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>
@@ -186,13 +230,27 @@
 
         <TabItem Header="Summary">
           <DataGrid ItemsSource="{Binding SummaryFields}"
-                    AutoGenerateColumns="False" IsReadOnly="True"
-                    HeadersVisibility="Column" CanUserAddRows="False"
+                    AutoGenerateColumns="False"
+                    IsReadOnly="{Binding IsDetailsReadOnly}"
+                    BeginningEdit="OnDetailsBeginningEdit"
+                    HeadersVisibility="Column" CanUserAddRows="False" CanUserDeleteRows="False"
                     ClipboardCopyMode="IncludeHeader">
+            <DataGrid.RowStyle>
+              <Style TargetType="DataGridRow">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsModified}" Value="True">
+                    <Setter Property="Background" Value="#FFFFF4CE" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </DataGrid.RowStyle>
             <DataGrid.Columns>
-              <DataGridTextColumn Header="Property" Binding="{Binding Name}"  Width="240" />
-              <DataGridTextColumn Header="Value"    Binding="{Binding Value}" Width="*" />
-              <DataGridTextColumn Header="Note"     Binding="{Binding Note}"  Width="320" />
+              <DataGridTextColumn Header="" Binding="{Binding ChangeMarker}" Width="24" IsReadOnly="True" />
+              <DataGridTextColumn Header="Property" Binding="{Binding Name}"  Width="230" IsReadOnly="True" />
+              <DataGridTextColumn Header="Value"    Width="*"
+                                  Binding="{Binding Value, UpdateSourceTrigger=LostFocus}" />
+              <DataGridTextColumn Header="Note"     Binding="{Binding Note}"  Width="320" IsReadOnly="True" />
             </DataGrid.Columns>
           </DataGrid>
         </TabItem>
@@ -244,6 +302,35 @@
               <DataGridTextColumn Header="Location" Binding="{Binding Location}"   Width="300" />
             </DataGrid.Columns>
           </DataGrid>
+        </TabItem>
+
+        <TabItem Header="Pending changes">
+          <DockPanel>
+            <Border DockPanel.Dock="Top" Background="{StaticResource PanelBackground}"
+                    BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1" Padding="6">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding EditModeLabel}" VerticalAlignment="Center"
+                           FontWeight="SemiBold" Foreground="{StaticResource AccentText}" />
+                <Button Content="Revert selected" Command="{Binding RevertSelectedCommand}" Margin="16,0,4,0" Padding="8,2" />
+                <Button Content="Revert all"      Command="{Binding RevertAllCommand}" Padding="8,2" />
+                <Button Content="Save as RPE…"    Command="{Binding SaveAsRpeCommand}" Margin="16,0,0,0" Padding="8,2" />
+              </StackPanel>
+            </Border>
+            <DataGrid ItemsSource="{Binding PendingEdits}"
+                      SelectedItem="{Binding SelectedPendingEdit}"
+                      AutoGenerateColumns="False" IsReadOnly="True"
+                      HeadersVisibility="Column" CanUserAddRows="False"
+                      ClipboardCopyMode="IncludeHeader"
+                      EnableRowVirtualization="True">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Time"      Binding="{Binding RecordedAt}" Width="70" />
+                <DataGridTextColumn Header="Field"     Binding="{Binding Field}"      Width="170" />
+                <DataGridTextColumn Header="Was"       Binding="{Binding OldValue}"   Width="*" />
+                <DataGridTextColumn Header="Becomes"   Binding="{Binding NewValue}"   Width="*" />
+                <DataGridTextColumn Header="Location"  Binding="{Binding Path}"       Width="280" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
         </TabItem>
 
         <TabItem Header="Messages">

@@ -5,6 +5,7 @@ using System.Windows;
 using Microsoft.Win32;
 using RPEReader.App.Mvvm;
 using RPEReader.Core.Abstractions;
+using RPEReader.Core.Editing;
 using RPEReader.Core.Export;
 using RPEReader.Core.Models;
 using RPEReader.Core.Services;
@@ -32,6 +33,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isBusy;
     private string _rawText = string.Empty;
     private long _hexPageIndex;
+    private bool _isEditMode;
 
     public MainViewModel(RpeFileService? fileService = null, IAppLogger? logger = null)
     {
@@ -40,7 +42,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _searchService = new SearchService(_fileService.Limits);
 
         OpenFileCommand = new AsyncRelayCommand(OpenFileDialogAsync, () => !IsBusy);
-        CloseFileCommand = new RelayCommand(CloseFile, () => HasDocument);
+        CloseFileCommand = new RelayCommand(CloseFileInteractive, () => HasDocument);
         SearchCommand = new RelayCommand(RunSearch, () => HasDocument && !string.IsNullOrEmpty(SearchQuery));
         ClearSearchCommand = new RelayCommand(ClearSearch, () => SearchResults.Count > 0);
         ExportJsonCommand = new RelayCommand(() => Export(new JsonExporter()), () => HasDocument);
@@ -52,6 +54,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CollapseAllCommand = new RelayCommand(() => SetExpansion(false), () => HasDocument);
         NextHexPageCommand = new RelayCommand(() => ShowHexPage(HexPageIndex + 1), () => HasHexPages);
         PreviousHexPageCommand = new RelayCommand(() => ShowHexPage(HexPageIndex - 1), () => HasHexPages);
+
+        SaveAsRpeCommand = new RelayCommand(SaveAsRpe, () => CanEdit);
+        OverwriteRpeCommand = new RelayCommand(OverwriteRpe, () => CanEdit && IsDirty);
+        RevertAllCommand = new RelayCommand(RevertAll, () => IsDirty);
+        RevertSelectedCommand = new RelayCommand(RevertSelected, () => SelectedPendingEdit is not null);
     }
 
     /// <summary>Hex-dump rows rendered per page.</summary>
@@ -68,6 +75,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<HexLineViewModel> HexLines { get; } = new();
 
     public ObservableCollection<string> Messages { get; } = new();
+
+    public ObservableCollection<PendingEditViewModel> PendingEdits { get; } = new();
 
     public AsyncRelayCommand OpenFileCommand { get; }
 
@@ -95,7 +104,89 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand PreviousHexPageCommand { get; }
 
+    public RelayCommand SaveAsRpeCommand { get; }
+
+    public RelayCommand OverwriteRpeCommand { get; }
+
+    public RelayCommand RevertAllCommand { get; }
+
+    public RelayCommand RevertSelectedCommand { get; }
+
     public bool HasDocument => _current?.Document is not null;
+
+    // ------------------------------------------------------------- editing
+
+    private IRpeDocumentEditor? Editor => _current?.Document?.Editor;
+
+    /// <summary>True when the open document's format can also be written.</summary>
+    public bool CanEdit => Editor is not null;
+
+    /// <summary>
+    /// Whether the property grid accepts changes. Off on every open: a file is
+    /// always inspected read-only first, and editing is a deliberate act.
+    /// </summary>
+    public bool IsEditMode
+    {
+        get => _isEditMode;
+        set
+        {
+            if (!CanEdit)
+            {
+                value = false;
+            }
+
+            if (!SetProperty(ref _isEditMode, value))
+            {
+                return;
+            }
+
+            foreach (var row in SelectedFields)
+            {
+                row.EditModeEnabled = value;
+            }
+
+            foreach (var row in SummaryFields)
+            {
+                row.EditModeEnabled = value;
+            }
+
+            OnPropertyChanged(nameof(EditModeLabel));
+            OnPropertyChanged(nameof(IsDetailsReadOnly));
+            StatusText = value
+                ? "Editing enabled. The file on disk is still untouched — changes are written only when you save."
+                : "Editing disabled. The document is open read-only.";
+        }
+    }
+
+    public bool IsDetailsReadOnly => !IsEditMode;
+
+    public bool IsDirty => Editor?.IsDirty ?? false;
+
+    public int PendingEditCount => Editor?.PendingEdits.Count ?? 0;
+
+    public string EditModeLabel => !CanEdit
+        ? "Read-only (format cannot be written by this build)"
+        : IsEditMode
+            ? $"Editing — {PendingEditCount:N0} pending change(s)"
+            : "Read-only";
+
+    public string WindowTitle
+    {
+        get
+        {
+            var name = _current?.FileInfo?.FileName;
+            var baseTitle = name is null ? "RPE Reader 1.0.0" : $"{name} — RPE Reader 1.0.0";
+            return IsDirty ? "*" + baseTitle : baseTitle;
+        }
+    }
+
+    private PendingEditViewModel? _selectedPendingEdit;
+
+    public PendingEditViewModel? SelectedPendingEdit
+    {
+        get => _selectedPendingEdit;
+        set => SetProperty(ref _selectedPendingEdit, value);
+    }
 
     public bool IsBusy
     {
@@ -156,7 +247,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 foreach (var field in value.Node.Fields)
                 {
-                    SelectedFields.Add(new FieldRowViewModel(field));
+                    SelectedFields.Add(new FieldRowViewModel(field, Editor, value.Path, OnFieldEdited)
+                    {
+                        EditModeEnabled = IsEditMode
+                    });
                 }
             }
 
@@ -250,6 +344,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Opening another file would drop unsaved edits, so ask first.
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
         _openCts?.Cancel();
         _openCts?.Dispose();
         _openCts = new CancellationTokenSource();
@@ -323,7 +423,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         foreach (var field in document.Summary)
         {
-            SummaryFields.Add(new FieldRowViewModel(field));
+            SummaryFields.Add(new FieldRowViewModel(field, Editor, "Document summary", OnFieldEdited)
+            {
+                EditModeEnabled = IsEditMode
+            });
         }
 
         RawText = document.RawText + (document.RawTextTruncated
@@ -345,9 +448,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RaiseFileProperties();
 
         var warnings = result.Diagnostics.Count(d => d.Severity != DiagnosticSeverity.Info);
+        var editNote = document.IsEditable
+            ? " Editing is available from the Edit menu."
+            : " This document is read-only.";
+
         StatusText = document.Incomplete || warnings > 0
             ? $"Opened {_current.FileInfo?.FileName} with {warnings} message(s). Some content may be incomplete — see Messages."
-            : $"Opened {_current.FileInfo?.FileName} as {document.FormatDisplayName}.";
+            : $"Opened {_current.FileInfo?.FileName} as {document.FormatDisplayName}.{editNote}";
     }
 
     private void RaiseFileProperties()
@@ -362,14 +469,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HexPageCount));
         OnPropertyChanged(nameof(HasHexPages));
         OnPropertyChanged(nameof(HexPageLabel));
+        RaiseEditingProperties();
     }
 
+    private void RaiseEditingProperties()
+    {
+        OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(IsEditMode));
+        OnPropertyChanged(nameof(IsDetailsReadOnly));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(PendingEditCount));
+        OnPropertyChanged(nameof(EditModeLabel));
+        OnPropertyChanged(nameof(WindowTitle));
+    }
+
+    /// <summary>Close requested by the user, so unsaved changes are worth a prompt.</summary>
+    private void CloseFileInteractive()
+    {
+        if (!ConfirmDiscardChanges())
+        {
+            return;
+        }
+
+        CloseFile();
+        StatusText = "File closed.";
+    }
+
+    /// <summary>
+    /// Tears down the open document. Callers that can lose unsaved work go
+    /// through <see cref="CloseFileInteractive"/> or check first.
+    /// </summary>
     private void CloseFile()
     {
+        _isEditMode = false;
         RootNodes.Clear();
         SelectedFields.Clear();
         SummaryFields.Clear();
         SearchResults.Clear();
+        PendingEdits.Clear();
+        SelectedPendingEdit = null;
         HexLines.Clear();
         RawText = string.Empty;
         SelectedNode = null;
@@ -580,6 +718,314 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         SetClipboard(builder.ToString(), "Summary copied to the clipboard.");
+    }
+
+    // ------------------------------------------------------- editing actions
+
+    private void OnFieldEdited(FieldRowViewModel row, EditValidationResult result)
+    {
+        if (result.Level == EditValidationLevel.Error)
+        {
+            Messages.Add($"[Error] {result.Message}");
+            StatusText = "The change was rejected. See Messages for the reason.";
+        }
+        else if (result.Level == EditValidationLevel.Warning)
+        {
+            Messages.Add($"[Warning] {result.Message}");
+            StatusText = "Change applied with a warning. See Messages.";
+        }
+        else
+        {
+            StatusText = $"'{row.Name}' changed. Nothing is written until you save.";
+        }
+
+        // A root attribute appears in both the tree and the summary as the same
+        // field instance, so editing it in one grid has to redraw the other.
+        // The row that raised the edit keeps its validation message.
+        RefreshAllRows(except: row);
+        RefreshPendingEdits();
+        RefreshSelectedNodeLabel();
+    }
+
+    /// <summary>
+    /// A node's label can be derived from a value the user just changed, so the
+    /// tree and the path header are re-read after an edit.
+    /// </summary>
+    private void RefreshSelectedNodeLabel()
+    {
+        SelectedNode?.RefreshLabel();
+        OnPropertyChanged(nameof(SelectedNodePath));
+    }
+
+    private void RefreshPendingEdits()
+    {
+        PendingEdits.Clear();
+        if (Editor is not null)
+        {
+            foreach (var edit in Editor.PendingEdits)
+            {
+                PendingEdits.Add(new PendingEditViewModel(edit));
+            }
+        }
+
+        RaiseEditingProperties();
+    }
+
+    private void RevertAll()
+    {
+        if (Editor is null || !Editor.IsDirty)
+        {
+            return;
+        }
+
+        var count = Editor.PendingEdits.Count;
+        Editor.RevertAll();
+        RefreshAllRows();
+        RefreshPendingEdits();
+        StatusText = $"Reverted {count:N0} change(s). The document matches the file on disk again.";
+    }
+
+    private void RevertSelected()
+    {
+        if (Editor is null || SelectedPendingEdit is null)
+        {
+            return;
+        }
+
+        var name = SelectedPendingEdit.Field;
+        if (Editor.Revert(SelectedPendingEdit.Edit))
+        {
+            RefreshAllRows();
+            RefreshPendingEdits();
+            StatusText = $"Reverted the change to '{name}'.";
+        }
+    }
+
+    private void RefreshAllRows(FieldRowViewModel? except = null)
+    {
+        foreach (var row in SelectedFields)
+        {
+            row.Refresh(keepMessage: ReferenceEquals(row, except));
+        }
+
+        foreach (var row in SummaryFields)
+        {
+            row.Refresh(keepMessage: ReferenceEquals(row, except));
+        }
+    }
+
+    private void SaveAsRpe()
+    {
+        if (Editor is null || _current?.FileInfo is null)
+        {
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save as RPE",
+            Filter = "RPE file (*.rpe)|*.rpe",
+            FileName = SuggestEditedName(_current.FileInfo.FileName),
+            AddExtension = true,
+            DefaultExt = ".rpe",
+            OverwritePrompt = true
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var target = Path.GetFullPath(dialog.FileName);
+        if (string.Equals(target, _current.FileInfo.FullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(
+                "That is the file currently open. Use File \u25b8 Save (overwrite original) if you really mean to replace it — " +
+                "that path takes a backup first.",
+                "RPE Reader",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        PerformSave(target, allowOverwrite: false);
+    }
+
+    private void OverwriteRpe()
+    {
+        if (Editor is null || _current?.FileInfo is null)
+        {
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            $"Replace the original file?\n\n{_current.FileInfo.FullPath}\n\n" +
+            $"{PendingEditCount:N0} change(s) will be written. A timestamped .bak copy is made first, " +
+            "and the new file is verified by re-reading it before it replaces the original.",
+            "RPE Reader — overwrite original",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        PerformSave(_current.FileInfo.FullPath, allowOverwrite: true);
+    }
+
+    private void PerformSave(string path, bool allowOverwrite)
+    {
+        if (Editor is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var result = Editor.Save(path, allowOverwrite);
+
+            foreach (var diagnostic in result.Diagnostics)
+            {
+                Messages.Add($"[{diagnostic.Severity}] {diagnostic.Message}");
+            }
+
+            if (!result.Success)
+            {
+                StatusText = "The file was not saved.";
+                MessageBox.Show(
+                    "The file was not saved.\n\n" +
+                    (result.Diagnostics.LastOrDefault(d => d.Severity == DiagnosticSeverity.Error)?.Message
+                     ?? "The reason was not reported."),
+                    "RPE Reader",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return;
+            }
+
+            _logger.Info($"Saved '{Path.GetFileName(path)}' with {PendingEditCount} change(s) applied.");
+
+            var backupNote = result.BackupPath is null
+                ? string.Empty
+                : $"\n\nA backup of the original was written to:\n{result.BackupPath}";
+
+            var fidelityNote = Editor.RoundTripsExactly
+                ? string.Empty
+                : "\n\nNote: this file could not be reproduced byte for byte — see Messages for why. " +
+                  "Your changes were written correctly, but the file also differs in the way noted there.";
+
+            MessageBox.Show(
+                $"Saved {Path.GetFileName(path)}.\n\n" +
+                $"Size: {RpeFileInfo.FormatSize(result.BytesWritten)}\n" +
+                $"SHA-256: {result.Sha256}\n\n" +
+                "The file was re-opened, re-parsed and compared with the document in memory; they match exactly. " +
+                "It is ready to import into OPC Router." + fidelityNote + backupNote,
+                "RPE Reader",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            // The values in memory are now exactly what the saved file holds,
+            // so they become the new baseline. Reverting here instead would
+            // roll the document back to its pre-edit state while the file kept
+            // the edits, and the next save would write that stale content.
+            Editor.AcceptChanges();
+            RefreshAllRows();
+            RefreshPendingEdits();
+            RefreshSelectedNodeLabel();
+
+            if (allowOverwrite)
+            {
+                // The file the properties pane and hex view describe has just
+                // been replaced, so its identity has to be re-read or they keep
+                // reporting the pre-save size, timestamp, hash and bytes.
+                ReloadFileIdentity(path, result.Sha256);
+            }
+
+            StatusText = allowOverwrite
+                ? $"Saved over {Path.GetFileName(path)}."
+                : $"Saved {Path.GetFileName(path)}. The open file is unchanged.";
+
+            RaiseEditingProperties();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Save to '{Path.GetFileName(path)}' failed.", ex);
+            Messages.Add($"[Error] {ex.GetType().Name}: {ex.Message}");
+            MessageBox.Show($"The file could not be saved.\n\n{ex.Message}",
+                "RPE Reader", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the identity of a file this application has just replaced, and
+    /// re-opens the hex view on it.
+    /// </summary>
+    private void ReloadFileIdentity(string path, string? sha256)
+    {
+        if (_current?.FileInfo is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = new FileInfo(path);
+
+            _current = new RpeOpenResult
+            {
+                Success = _current.Success,
+                Document = _current.Document,
+                Diagnostics = _current.Diagnostics,
+                SelectedParser = _current.SelectedParser,
+                FileInfo = new RpeFileInfo
+                {
+                    FileName = info.Name,
+                    FullPath = info.FullName,
+                    SizeBytes = info.Length,
+                    LastWriteTimeUtc = info.LastWriteTimeUtc,
+                    CreationTimeUtc = info.CreationTimeUtc,
+                    Sha256 = sha256 ?? _current.FileInfo.Sha256
+                }
+            };
+
+            _hexSource?.Dispose();
+            _hexSource = HexViewSource.Open(path);
+            ShowHexPage(0);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.Warn($"Could not re-read '{Path.GetFileName(path)}' after saving: {ex.GetType().Name}.");
+            Messages.Add("[Warning] The file was saved, but its details could not be re-read. Re-open it to refresh them.");
+        }
+
+        RaiseFileProperties();
+    }
+
+    private static string SuggestEditedName(string fileName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        return $"{stem}-edited.rpe";
+    }
+
+    /// <summary>
+    /// Asks about unsaved changes. Returns false when the caller should stop.
+    /// </summary>
+    public bool ConfirmDiscardChanges()
+    {
+        if (!IsDirty)
+        {
+            return true;
+        }
+
+        var answer = MessageBox.Show(
+            $"{PendingEditCount:N0} change(s) have not been saved. Discard them?",
+            "RPE Reader",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        return answer == MessageBoxResult.Yes;
     }
 
     private void SetClipboard(string text, string successMessage)

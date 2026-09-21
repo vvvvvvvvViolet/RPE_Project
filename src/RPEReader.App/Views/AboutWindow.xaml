@@ -17,7 +17,7 @@
       <TextBlock Text="RPE Reader" FontSize="22" FontWeight="Bold"
                  Foreground="{StaticResource AccentText}" />
       <TextBlock x:Name="VersionText" Margin="0,4,0,0" Foreground="{StaticResource MutedText}" />
-      <TextBlock Text="A read-only viewer and analyser for .rpe files." Margin="0,8,0,0" TextWrapping="Wrap" />
+      <TextBlock Text="A viewer, analyser and editor for .rpe files." Margin="0,8,0,0" TextWrapping="Wrap" />
     </StackPanel>
 
     <Border Grid.Row="1" Margin="0,12" Padding="10"
@@ -27,7 +27,10 @@
         <StackPanel>
           <TextBlock Text="Design commitments" Style="{StaticResource SectionHeader}" />
           <TextBlock TextWrapping="Wrap" Margin="0,0,0,10">
-            • Files are opened read-only. The application never writes to a file it is shown.<LineBreak />
+            • Files open read-only. Editing is opt-in, and nothing is written until you save.<LineBreak />
+            • Byte fidelity is measured per file when it is opened, not assumed: an unmodified save reproduces the contents byte for byte, and you are told plainly if a particular file cannot be reproduced exactly.<LineBreak />
+            • Every save is written to a temporary file, re-opened and re-parsed to verify it, and only then moved into place.<LineBreak />
+            • Overwriting the open file takes a timestamped backup first.<LineBreak />
             • The application works entirely offline. It makes no network calls and sends no telemetry.<LineBreak />
             • Nothing inside a file is ever executed: no macros, no scripts, no embedded executables.<LineBreak />
             • No BinaryFormatter and no unsafe deserialisation are used anywhere.<LineBreak />

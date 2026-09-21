@@ -18,7 +18,7 @@
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
           Use <Bold>File ▸ Open</Bold> (Ctrl+O), drag a single .rpe file onto the window, or — once the
           installer has registered the file association — double-click a .rpe file in Explorer.
-          The file is opened read-only and is never modified.
+          The file is opened read-only; see <Italic>Editing a file</Italic> below to change it.
         </TextBlock>
 
         <TextBlock Text="Reading the panels" Style="{StaticResource SectionHeader}" FontSize="15" />
@@ -58,11 +58,55 @@
           Grids also support Ctrl+C on a selection.
         </TextBlock>
 
+        <TextBlock Text="Editing a file" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          Files always open read-only. Tick <Bold>Edit mode</Bold> on the toolbar, or
+          <Bold>Edit ▸ Enable editing</Bold>, to allow changes. Nothing on disk changes until you save.
+          <LineBreak /><LineBreak />
+          With edit mode on, the <Bold>Value</Bold> column in Details and Summary becomes typeable.
+          Changed rows are highlighted and marked with a dot, and the <Bold>Original</Bold> column keeps
+          showing what the file held. Greyed rows cannot be edited: a declared .NET type name, a value
+          that was too long to show in full, or a value the reader derived rather than read.
+          <LineBreak /><LineBreak />
+          A change is refused outright only when it could not be written to a readable file — for example
+          a character XML cannot carry. When a value's <Italic>kind</Italic> changes, such as a True/False
+          field being given free text, the change is allowed but a warning appears in
+          <Bold>Messages</Bold>: this build has no schema for the format and will not pretend to know
+          your configuration is wrong.
+        </TextBlock>
+
+        <TextBlock Text="Reviewing and saving changes" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          The <Bold>Pending changes</Bold> tab lists every edit as <Italic>was → becomes</Italic>, with where
+          in the document it sits. Revert one from there, or revert everything at once.
+          <LineBreak /><LineBreak />
+          <Bold>File ▸ Save as RPE…</Bold> (Ctrl+Shift+S) writes a new .rpe ready to import into OPC Router.
+          The file you opened is not touched.
+          <LineBreak />
+          <Bold>File ▸ Save (overwrite original)…</Bold> replaces the open file. It asks first and copies the
+          original to a timestamped <Bold>.bak</Bold> beside it before writing.
+          <LineBreak /><LineBreak />
+          Either way the new file is written to a temporary name, re-opened and re-parsed to check it is
+          readable, and only then moved into place. A save that fails that check writes nothing. The
+          confirmation shows the size and SHA-256 of what was written.
+          <LineBreak /><LineBreak />
+          A save with no changes reproduces the original's contents byte for byte, so an exported file
+          differs only where you edited it.
+          <LineBreak /><LineBreak />
+          That is checked for each file as it is opened rather than taken on trust. If a file cannot be
+          reproduced exactly — most often because it holds carriage returns inside values, which every
+          XML reader is required to convert to line feeds — a warning appears in <Bold>Messages</Bold>
+          naming the reason, and the save confirmation repeats it. Editing still works; you simply know
+          in advance that the file will differ in that one respect as well as where you edited it.
+        </TextBlock>
+
         <TextBlock Text="When a file is not recognised" Style="{StaticResource SectionHeader}" FontSize="15" />
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
           If no structural parser matches, the generic inspector takes over. It reports only what can be
           measured — file signature, encoding, Shannon entropy, container listing and printable strings —
           and states plainly that the layout is unknown. It never invents a field structure.
+          Such a document is always read-only: this build will not write a file whose layout it has not
+          established. The same applies when a safety limit stopped the document being read in full.
         </TextBlock>
 
         <TextBlock Text="Logs" Style="{StaticResource SectionHeader}" FontSize="15" />

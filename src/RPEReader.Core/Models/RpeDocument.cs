@@ -1,3 +1,5 @@
+using RPEReader.Core.Editing;
+
 namespace RPEReader.Core.Models;
 
 /// <summary>The parsed, in-memory view of one .rpe file.</summary>
@@ -23,4 +25,14 @@ public sealed class RpeDocument
 
     /// <summary>True when any limit prevented the document from being fully read.</summary>
     public bool Incomplete { get; init; }
+
+    /// <summary>
+    /// Editing surface for this document, or <c>null</c> when the format can be
+    /// read but not written. A document opened through the generic inspector is
+    /// always read-only: this build will not write a file whose layout it has
+    /// not established.
+    /// </summary>
+    public IRpeDocumentEditor? Editor { get; init; }
+
+    public bool IsEditable => Editor is not null;
 }

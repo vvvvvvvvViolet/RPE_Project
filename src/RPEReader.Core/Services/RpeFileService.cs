@@ -93,7 +93,8 @@ public sealed class RpeFileService
             {
                 Probe = probe,
                 Limits = _limits,
-                CancellationToken = cancellationToken
+                CancellationToken = cancellationToken,
+                SourcePath = info.FullName
             };
 
             ParseResult result;

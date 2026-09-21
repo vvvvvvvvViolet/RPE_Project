@@ -1,7 +1,10 @@
 # RPE Reader
 
-A read-only Windows desktop viewer and analyser for `.rpe` files, built with
+A Windows desktop viewer, analyser and editor for `.rpe` files, built with
 C# / .NET 8 and WPF (MVVM).
+
+Files always **open read-only**. Editing is a deliberate, opt-in mode, and
+changes are only ever written when you explicitly save.
 
 The supplied `.rpe` samples turned out to be **Inray OPC Router 4 project
 exports** — a ZIP container holding a single `OpcRouter4.xml` document. RPE
@@ -19,7 +22,7 @@ format analysis and the evidence behind it.
 **Opening**
 - Open via toolbar, `File ▸ Open` (Ctrl+O), or drag-and-drop of a single file
 - Double-click a `.rpe` in Explorer once the installer registers the association
-- Files are opened **read-only**; the source is never modified
+- Files are opened **read-only**; the source is only ever changed by an explicit, confirmed overwrite
 
 **File identity**
 - Name, full path, size, modification time (local and UTC), and **SHA-256**
@@ -38,6 +41,14 @@ format analysis and the evidence behind it.
 - **Field name** — field names only
 - **Hex bytes** — byte patterns against the raw file (`50 4B 03 04`, `504B0304`, `50-4B-03-04`; `??` matches any byte)
 - Selecting a result jumps to the node, or to that page of the hex dump
+
+**Editing and re-export**
+- Opt-in **edit mode** — off on every open
+- Change any value in the Details or Summary grid; changed rows are highlighted
+- **Pending changes** tab lists every edit as `was → becomes`, with revert per change or all at once
+- **Save as RPE** writes an importable `.rpe`; **Save (overwrite original)** replaces the open file after a confirmation and a timestamped `.bak`
+- An unmodified save reproduces the payload **byte for byte**, so an exported file differs only where you changed something — and that is **measured per file when it is opened**, not assumed, with a plain warning when a particular file cannot be reproduced exactly
+- Every save is written to a temporary file, re-opened, re-parsed and compared against the document in memory before it replaces anything
 
 **Output**
 - Export to **JSON** (tree shape), **CSV** (one row per field) or **TXT** (indented outline)
@@ -215,7 +226,12 @@ rather than leaving the user with nothing.
 
 | Commitment | How it is enforced |
 |---|---|
-| Read-only | Every handle is `FileAccess.Read`; a test asserts the file's bytes and timestamp are unchanged after opening |
+| Read-only on open | Every read handle is `FileAccess.Read`; a test asserts the file's bytes and timestamp are unchanged after opening, and after saving elsewhere |
+| Writes are deliberate | Edit mode is off on every open; saving is an explicit action; overwriting the open file needs a separate confirmed command that backs it up first |
+| A save is never half-written | Written to a temporary file in the destination folder, verified, then moved into place; a failure deletes the temporary file and saves nothing |
+| A save is verified | The written file is re-opened, re-parsed, re-serialised, and compared against what the in-memory document serialises to — proving every edit reached the file and nothing else moved |
+| Fidelity is measured, not claimed | Each file is test-serialised when opened; if it cannot be reproduced exactly the reason is reported and repeated at save time |
+| Lossy reads cannot become lossy writes | A document truncated by any limit is read-only; a value shortened for display is not editable |
 | Offline | No HTTP client, no socket, no telemetry anywhere in the codebase |
 | No code execution | Nothing in a file is executed — no macros, no scripts, no embedded executables |
 | No unsafe deserialisation | No `BinaryFormatter`; JSON is only ever *written*, never read back |
@@ -256,6 +272,16 @@ synthetic fixtures with invented values instead.
   ciphertext this build does not attempt to decrypt, by design.
 - The connection graph (`ConnectionLine` → `LocalId`) is exposed as data but not
   drawn as a diagram.
+- Editing changes **existing values only**. Adding or removing connections,
+  transfer objects or items is not supported, which keeps every write inside a
+  shape the product demonstrably produces.
+- Values are not schema-validated. This build has no schema for the format, so
+  it blocks only what is provably invalid (characters XML cannot carry, values
+  over the length cap) and *warns* when a value's kind changes — for example a
+  `True`/`False` field being given free text.
+- **No file written by this tool has been imported into a real OPC Router
+  installation.** The byte-fidelity guarantees are strong evidence, not a
+  substitute for an import test on a non-production instance.
 - The build is x64 only. No ARM64 or x86 configuration is provided.
 
 `docs/RPE_FORMAT_FINDINGS.md` §7 lists exactly which additional sample files
@@ -270,4 +296,4 @@ Third-party components and their licences are listed in
 third-party runtime dependencies — only the .NET 8 base class library and WPF.
 
 "OPC Router" is a product of Inray Industriesoftware GmbH. This project is an
-independent, read-only viewer and is not affiliated with or endorsed by Inray.
+independent viewer and editor, and is not affiliated with or endorsed by Inray.

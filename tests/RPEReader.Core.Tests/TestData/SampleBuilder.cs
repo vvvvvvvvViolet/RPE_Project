@@ -28,10 +28,7 @@ public sealed class SampleBuilder : IDisposable
     /// <summary>A minimal but structurally faithful OPC Router 4 export.</summary>
     public static string MinimalOpcRouterXml { get; } = """
         <?xml version="1.0" encoding="utf-8"?>
-        <OpcRouter4Export ExportType="Templates" Version="5.6.5002.211" FileVersion="Version_3"
-                          EncryptedFieldHandling="Skip" Type="OPCRouter"
-                          LicenseId="TEST-TEST-TEST-TEST-TEST-TEST-00"
-                          DisplayName="unit-test-instance" InstanceId="UNIT_TEST_INSTANCE_ID">
+        <OpcRouter4Export ExportType="Templates" Version="5.6.5002.211" FileVersion="Version_3" EncryptedFieldHandling="Skip" Type="OPCRouter" LicenseId="TEST-TEST-TEST-TEST-TEST-TEST-00" DisplayName="unit-test-instance" InstanceId="UNIT_TEST_INSTANCE_ID">
           <Options />
           <Plugins>
             <PlugIn Type="BasePlugInConfig">
@@ -68,6 +65,20 @@ public sealed class SampleBuilder : IDisposable
                     </ConnectionLine>
                   </ConnectionLines>
                   <TransferObjects>
+                    <MqttTransferObjectConfig Type="inray.OPCRouter.MqttPlugIn.MqttTransferObjectConfig, inray.OPCRouter4.MqttPlugIn, Version=5.6.0.0, Culture=neutral, PublicKeyToken=0000000000000000">
+                      <Topic>example/line/1/CycleTime</Topic>
+                      <QualityOfService>Default</QualityOfService>
+                      <PayloadType>String</PayloadType>
+                      <PayloadEncoding>65001</PayloadEncoding>
+                      <Retain>False</Retain>
+                      <LocalId>222222</LocalId>
+                      <PosX>300</PosX>
+                      <PosY>200</PosY>
+                      <TransferStep>2</TransferStep>
+                      <PlugInType>20000</PlugInType>
+                      <ConfigType>20001</ConfigType>
+                      <ChangedUTCTimestamp Type="System.DateTime">5250883024082017904</ChangedUTCTimestamp>
+                    </MqttTransferObjectConfig>
                     <StaticTransferObjectConfig Type="inray.OPCRouter.BasePlugIn.Config.Static.StaticTransferObjectConfig, inray.OPCRouter4.BasePlugIn, Version=5.6.0.0, Culture=neutral, PublicKeyToken=0000000000000000">
                       <LocalId>111111</LocalId>
                       <PosX>100</PosX>
@@ -119,16 +130,38 @@ public sealed class SampleBuilder : IDisposable
         </OpcRouter4Export>
         """;
 
+    /// <summary>
+    /// Passes fixture XML through the same read/write pair the application
+    /// uses, so a fixture is exactly what the tool would produce from it.
+    /// </summary>
+    /// <remarks>
+    /// Because the writer preserves a document's own layout, this is a
+    /// pass-through for XML already written in the product's style — which the
+    /// literals above are. It exists so that a fixture authored slightly
+    /// differently cannot make a byte-comparison test fail for a reason that
+    /// has nothing to do with the behaviour under test. The byte-fidelity
+    /// claim itself is proved in WriterShapeTests against hand-written XML
+    /// that never passes through here.
+    /// </remarks>
+    public static byte[] Canonicalise(string xml)
+    {
+        var bytes = new UTF8Encoding(false).GetBytes(xml);
+        var document = RPEReader.Core.Parsing.OpcRouter4.OpcRouter4Writer.ReadXml(bytes, 8 * 1024 * 1024);
+        return RPEReader.Core.Parsing.OpcRouter4.OpcRouter4Writer.SerialiseXml(document);
+    }
+
     /// <summary>Writes a valid OPC Router 4 .rpe (ZIP containing OpcRouter4.xml).</summary>
-    public string CreateOpcRouterRpe(string fileName = "valid.rpe", string? xml = null)
+    public string CreateOpcRouterRpe(string fileName = "valid.rpe", string? xml = null, bool canonicalise = true)
     {
         var path = NewPath(fileName);
+        var text = xml ?? MinimalOpcRouterXml;
+        var bytes = canonicalise ? Canonicalise(text) : new UTF8Encoding(false).GetBytes(text);
+
         using var file = File.Create(path);
         using var archive = new ZipArchive(file, ZipArchiveMode.Create);
         var entry = archive.CreateEntry("OpcRouter4.xml", CompressionLevel.Optimal);
         using var stream = entry.Open();
-        using var writer = new StreamWriter(stream, new UTF8Encoding(false));
-        writer.Write(xml ?? MinimalOpcRouterXml);
+        stream.Write(bytes, 0, bytes.Length);
         return path;
     }
 
@@ -152,8 +185,8 @@ public sealed class SampleBuilder : IDisposable
         using var archive = new ZipArchive(file, ZipArchiveMode.Create);
         var entry = archive.CreateEntry("../../evil/OpcRouter4.xml", CompressionLevel.Optimal);
         using var stream = entry.Open();
-        using var writer = new StreamWriter(stream, new UTF8Encoding(false));
-        writer.Write(MinimalOpcRouterXml);
+        var bytes = Canonicalise(MinimalOpcRouterXml);
+        stream.Write(bytes, 0, bytes.Length);
         return path;
     }
 
@@ -192,7 +225,7 @@ public sealed class SampleBuilder : IDisposable
 
     /// <summary>A valid container whose XML is not well formed.</summary>
     public string CreateMalformedXmlRpe(string fileName = "malformed.rpe")
-        => CreateOpcRouterRpe(fileName, "<?xml version=\"1.0\"?><OpcRouter4Export><Plugins></OpcRouter4Export>");
+        => CreateOpcRouterRpe(fileName, "<?xml version=\"1.0\"?><OpcRouter4Export><Plugins></OpcRouter4Export>", canonicalise: false);
 
     /// <summary>A container whose XML declares an external DTD entity.</summary>
     public string CreateXxeRpe(string fileName = "xxe.rpe")
@@ -200,7 +233,7 @@ public sealed class SampleBuilder : IDisposable
             <?xml version="1.0"?>
             <!DOCTYPE OpcRouter4Export [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
             <OpcRouter4Export DisplayName="&xxe;"><Plugins /></OpcRouter4Export>
-            """);
+            """, canonicalise: false);
 
     public string CreateEmptyRpe(string fileName = "empty.rpe")
     {

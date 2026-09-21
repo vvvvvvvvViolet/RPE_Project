@@ -3,7 +3,7 @@
 Self-contained `win-x64` publish produced by `build/publish.ps1`.
 
 - **Files:** 245
-- **Total size:** 144.9 MB (151,926,100 bytes)
+- **Total size:** 145.0 MB (152,019,696 bytes)
 - **Target:** Windows 10 (1809+) / Windows 11, x64
 - **Runtime:** .NET 8 bundled — no separate runtime install required
 
@@ -17,9 +17,9 @@ Self-contained `win-x64` publish produced by `build/publish.ps1`.
 
 | File | Size | SHA-256 |
 |---|---:|---|
-| `RPEReader.exe` | 252,416 B | `dbdff07014db1e96ee1e227f6e84f4c4ff0bfd8701108afbe1210feb3296dd99` |
-| `RPEReader.dll` | 327,680 B | `0144ca58b4f0f3d19b14a7e3a9d2c3cddc671e2f80de26fb870db111c5ab1bcc` |
-| `RPEReader.Core.dll` | 217,088 B | `f15685149f49f2892255fce01fb57fd5be80ef7675de4e21f215f8aa972b63b2` |
+| `RPEReader.exe` | 252,416 B | `689844df6539a21c73357380bd72522564d3298ba898326d9dc7e14a707129ca` |
+| `RPEReader.dll` | 364,544 B | `4f793130f0b6f032b47058c70d039c772258100d5092dba600c93a4972cff476` |
+| `RPEReader.Core.dll` | 262,144 B | `df874c142cb6d2e093a7355193c81c64056b19645fb1aacc53fa8b473a49fbb6` |
 | `RPEReader.runtimeconfig.json` | 497 B | `7fd808627ff268db842207ae7022d8c35d386b1e8f5a969256cc322af9bcfc77` |
 | `RPEReader.deps.json` | 34,683 B | `32b830c7cd7f472263269ec82039f37a6752f764968543077928c4dbdc3efc5a` |
 
@@ -82,12 +82,12 @@ in the publish output as required by its redistribution terms.
   16,127,824  PresentationFramework.dll
    1,235,280  PresentationNative_cor3.dll
    1,287,976  PresentationUI.dll
-     217,088  RPEReader.Core.dll
-      33,136  RPEReader.Core.pdb
+     262,144  RPEReader.Core.dll
+      38,588  RPEReader.Core.pdb
       34,683  RPEReader.deps.json
-     327,680  RPEReader.dll
+     364,544  RPEReader.dll
      252,416  RPEReader.exe
-      35,936  RPEReader.pdb
+      42,160  RPEReader.pdb
          497  RPEReader.runtimeconfig.json
    1,603,368  ReachFramework.dll
       15,144  System.AppContext.dll
