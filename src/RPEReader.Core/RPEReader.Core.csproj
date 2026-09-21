@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>RPEReader.Core</RootNamespace>
+    <AssemblyName>RPEReader.Core</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- No third-party runtime dependencies. Everything used here ships in the
+         .NET 8 base class library (System.IO.Compression, System.Text.Json,
+         System.Xml, System.Security.Cryptography). -->
+  </PropertyGroup>
+
+</Project>

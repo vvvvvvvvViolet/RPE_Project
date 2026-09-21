@@ -1,0 +1,52 @@
+<Window x:Class="RPEReader.App.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About RPE Reader"
+        Height="440" Width="560"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0">
+      <TextBlock Text="RPE Reader" FontSize="22" FontWeight="Bold"
+                 Foreground="{StaticResource AccentText}" />
+      <TextBlock x:Name="VersionText" Margin="0,4,0,0" Foreground="{StaticResource MutedText}" />
+      <TextBlock Text="A read-only viewer and analyser for .rpe files." Margin="0,8,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Margin="0,12" Padding="10"
+            Background="{StaticResource PanelBackground}"
+            BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="3">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+          <TextBlock Text="Design commitments" Style="{StaticResource SectionHeader}" />
+          <TextBlock TextWrapping="Wrap" Margin="0,0,0,10">
+            • Files are opened read-only. The application never writes to a file it is shown.<LineBreak />
+            • The application works entirely offline. It makes no network calls and sends no telemetry.<LineBreak />
+            • Nothing inside a file is ever executed: no macros, no scripts, no embedded executables.<LineBreak />
+            • No BinaryFormatter and no unsafe deserialisation are used anywhere.<LineBreak />
+            • Declared .NET type names found inside a file are shown as text and never resolved or instantiated.<LineBreak />
+            • XML is read with DTD processing prohibited and no resolver, so external entities cannot be reached.<LineBreak />
+            • Logs record file names and error text only, never content read out of a file.
+          </TextBlock>
+
+          <TextBlock Text="Third-party components" Style="{StaticResource SectionHeader}" />
+          <TextBlock TextWrapping="Wrap">
+            The shipped application has no third-party runtime dependencies. It uses only the .NET 8
+            base class library and WPF, both under the MIT licence (© Microsoft Corporation).
+            Build and test tooling is listed in THIRD_PARTY_NOTICES.md.
+          </TextBlock>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <Button Grid.Row="2" Content="Close" Width="90" Height="28"
+            HorizontalAlignment="Right" IsDefault="True" IsCancel="True" Click="OnCloseClick" />
+  </Grid>
+</Window>

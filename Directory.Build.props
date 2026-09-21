@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <Product>RPE Reader</Product>
+    <Company>RPE Reader Project</Company>
+    <Copyright>Copyright (c) 2026 RPE Reader Project</Copyright>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Required to build/publish net8.0-windows (WPF) from a non-Windows host.
+         Harmless on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Offline / privacy posture: no build-time telemetry or implicit package sources -->
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+</Project>

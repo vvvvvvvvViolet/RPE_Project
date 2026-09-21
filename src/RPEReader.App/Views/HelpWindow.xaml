@@ -1,0 +1,82 @@
+<Window x:Class="RPEReader.App.Views.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RPE Reader — quick guide"
+        Height="600" Width="680"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+
+        <TextBlock Text="Opening a file" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          Use <Bold>File ▸ Open</Bold> (Ctrl+O), drag a single .rpe file onto the window, or — once the
+          installer has registered the file association — double-click a .rpe file in Explorer.
+          The file is opened read-only and is never modified.
+        </TextBlock>
+
+        <TextBlock Text="Reading the panels" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          The left panel shows file identity — name, path, size, modification time and SHA-256 — above the
+          structure tree. Selecting a node fills the <Bold>Details</Bold> grid with that node's fields.
+          <LineBreak /><LineBreak />
+          <Bold>Summary</Bold> lists the document-level properties and counts.
+          <Bold>Raw text</Bold> shows the decoded text payload.
+          <Bold>Hex</Bold> is a paged offset / hexadecimal / ASCII dump read directly from disk, so a large
+          file does not have to fit in memory.
+          <Bold>Messages</Bold> collects every warning raised while reading, including anything that was
+          truncated by a safety limit.
+        </TextBlock>
+
+        <TextBlock Text="Searching" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          Type in the <Bold>Find</Bold> box and press Enter. Three modes are available:
+          <LineBreak />
+          • <Bold>Text</Bold> — matches node names, field names and field values.<LineBreak />
+          • <Bold>Field name</Bold> — matches field names only.<LineBreak />
+          • <Bold>Hex bytes</Bold> — matches a byte pattern against the raw file, written as
+          <Bold>50 4B 03 04</Bold>, <Bold>504B0304</Bold> or <Bold>50-4B-03-04</Bold>. Use
+          <Bold>??</Bold> for a byte that may be anything.
+          <LineBreak /><LineBreak />
+          Results appear on the <Bold>Search results</Bold> tab. Selecting a tree hit jumps to that node;
+          selecting a hex hit jumps to that page of the dump.
+        </TextBlock>
+
+        <TextBlock Text="Exporting and copying" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          <Bold>File ▸ Export</Bold> writes the parsed document as JSON, CSV or plain text. JSON keeps the
+          tree shape; CSV flattens it to one row per field; text is an indented outline. Every export
+          records the source file's SHA-256 so a result can be tied back to the exact input.
+          <LineBreak /><LineBreak />
+          <Bold>Edit ▸ Copy selected node</Bold> puts the selected node and its fields on the clipboard.
+          Grids also support Ctrl+C on a selection.
+        </TextBlock>
+
+        <TextBlock Text="When a file is not recognised" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,12">
+          If no structural parser matches, the generic inspector takes over. It reports only what can be
+          measured — file signature, encoding, Shannon entropy, container listing and printable strings —
+          and states plainly that the layout is unknown. It never invents a field structure.
+        </TextBlock>
+
+        <TextBlock Text="Logs" Style="{StaticResource SectionHeader}" FontSize="15" />
+        <TextBlock TextWrapping="Wrap">
+          Errors are written to a dated file under the <Bold>Logs</Bold> folder beside the executable, or
+          under %LOCALAPPDATA%\RPEReader\Logs when that location is not writable. Use
+          <Bold>Help ▸ Open log folder</Bold> to find it. Logs contain file names and error text only —
+          never data read out of a .rpe file — so they are safe to attach to a support request.
+        </TextBlock>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <Button Grid.Row="1" Content="Close" Width="90" Height="28" Margin="0,12,0,0"
+            HorizontalAlignment="Right" IsDefault="True" IsCancel="True" Click="OnCloseClick" />
+  </Grid>
+</Window>
