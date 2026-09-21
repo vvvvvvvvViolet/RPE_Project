@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>RPEReader.App</RootNamespace>
+
+    <!-- The shipped binary is RPEReader.exe regardless of the project name. -->
+    <AssemblyName>RPEReader</AssemblyName>
+
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Version information stamped into the Win32 resource block -->
+    <AssemblyTitle>RPE Reader</AssemblyTitle>
+    <Description>Viewer, analyser and editor for .rpe files</Description>
+
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <Platforms>AnyCPU;x64</Platforms>
+
+    <!-- WPF cannot be trimmed safely: XAML is resolved reflectively at runtime,
+         so the trimmer removes types the parser still needs. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- ReadyToRun shortens cold start without changing behaviour. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RPEReader.Core\RPEReader.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\app.ico" />
+  </ItemGroup>
+
+</Project>
