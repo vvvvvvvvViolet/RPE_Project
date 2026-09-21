@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 <#
 .SYNOPSIS
     Builds, tests and publishes RPE Reader as a self-contained Windows x64 application.
@@ -70,6 +72,11 @@ Write-Step "Cleaning $OutputPath"
 if (Test-Path $OutputPath) { Remove-Item $OutputPath -Recurse -Force }
 New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
 
+# Normalise to a full, canonically-separated path. Callers may pass mixed
+# separators (a GitHub Actions workspace expands to 'D:\a\repo\repo/Release'),
+# which would otherwise corrupt the relative paths written to the manifest.
+$OutputPath = (Resolve-Path -LiteralPath $OutputPath).ProviderPath.TrimEnd('\', '/')
+
 # --- Build -------------------------------------------------------------------
 
 Write-Step "Building the solution ($Configuration)"
@@ -130,15 +137,18 @@ Write-Host "    SHA-256    : $hash"
 Write-Host "    Files      : $count"
 Write-Host ("    Total size : {0:N1} MB" -f ($bytes / 1MB))
 
-# A manifest makes a published drop auditable after the fact.
+# A manifest makes a published drop auditable after the fact. The lines are
+# collected before anything is written, so the manifest can never end up
+# hashing itself while it is still being created.
 $manifest = Join-Path $OutputPath 'SHA256SUMS.txt'
-Get-ChildItem $OutputPath -Recurse -File |
-    Where-Object { $_.FullName -ne $manifest } |
+$lines = Get-ChildItem -LiteralPath $OutputPath -Recurse -File |
     Sort-Object FullName |
     ForEach-Object {
-        $rel = $_.FullName.Substring($OutputPath.Length).TrimStart('\')
-        '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $rel
-    } | Set-Content -Path $manifest -Encoding ascii
+        $rel = [System.IO.Path]::GetRelativePath($OutputPath, $_.FullName)
+        '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $rel
+    }
+
+Set-Content -LiteralPath $manifest -Value $lines -Encoding ascii
 
 Write-Host "    Manifest   : $manifest"
 Write-Host ''

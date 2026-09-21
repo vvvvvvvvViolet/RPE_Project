@@ -55,9 +55,13 @@ format analysis and the evidence behind it.
 **To run:** Windows 10 (1809 / build 17763) or Windows 11, 64-bit.
 No .NET installation is needed — the build is self-contained.
 
-**To build:** the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
-Visual Studio 2022 (17.8+) with the *.NET desktop development* workload opens
-`RPEReader.sln` directly.
+**To build:** the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+or newer. Visual Studio 2022 (17.8+) with the *.NET desktop development* workload
+opens `RPEReader.sln` directly.
+
+`build/publish.ps1` requires **PowerShell 7** (`pwsh`) — it uses APIs that
+Windows PowerShell 5.1 does not provide. `dotnet build` and `dotnet test` have
+no such requirement.
 
 ---
 

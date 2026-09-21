@@ -35,19 +35,79 @@ public sealed class ExportTests : IDisposable
         Assert.True(root.GetProperty("tree").GetProperty("children").GetArrayLength() > 0);
     }
 
-    [Fact]
-    public async Task Csv_export_has_a_header_and_one_row_per_field()
+    /// <summary>
+    /// Exercised with both newline conventions: <see cref="TextWriter.WriteLine()"/>
+    /// emits the platform newline, so a test that assumes one of them passes on
+    /// Linux and fails on Windows.
+    /// </summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public async Task Csv_export_has_a_header_and_one_row_per_field(string newLine)
     {
         var (document, info) = await LoadAsync();
 
-        var writer = new StringWriter();
+        var writer = new StringWriter { NewLine = newLine };
         new CsvExporter().Export(document, info, writer, RpeLimits.Default);
 
-        var lines = writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = SplitLines(writer.ToString());
 
         Assert.Equal("Path,Node,Category,Field,Value,DeclaredType,Note", lines[0]);
-        Assert.True(lines.Length > 5);
-        Assert.All(lines.Skip(1), line => Assert.Equal(6, line.Count(c => c == ',') >= 6 ? 6 : line.Count(c => c == ',')));
+        Assert.True(lines.Length > 5, $"expected more than 5 rows, got {lines.Length}");
+
+        // Every data row must carry exactly the seven columns the header declares.
+        // Commas inside quoted values must not be counted, so the row is parsed
+        // rather than having its commas tallied.
+        Assert.All(lines.Skip(1), line => Assert.Equal(7, ParseCsvRow(line).Count));
+    }
+
+    private static string[] SplitLines(string text) =>
+        text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>Minimal RFC 4180 row splitter: quoted fields, "" as an escaped quote.</summary>
+    private static List<string> ParseCsvRow(string line)
+    {
+        var fields = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+
+            if (inQuotes)
+            {
+                if (c != '"')
+                {
+                    current.Append(c);
+                }
+                else if (i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = false;
+                }
+            }
+            else if (c == '"')
+            {
+                inQuotes = true;
+            }
+            else if (c == ',')
+            {
+                fields.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        fields.Add(current.ToString());
+        return fields;
     }
 
     [Theory]
